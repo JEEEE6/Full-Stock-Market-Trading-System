@@ -13,8 +13,7 @@ import threading
 import logging
 import traceback
 
-
-# Configure logging
+# Configure logging change over to util logging later on for better control
 logging.basicConfig(
     level=logging.WARNING,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -27,15 +26,12 @@ app = Flask(__name__,
 app.config['SECRET_KEY'] = 'stocksniper-dashboard-secret'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Directory paths - adjust these to match your file structure
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "Data")
 
-# Parquet file paths - CRITICAL FOR OPERATION
 BUY_SIGNALS_PATH = os.path.join(BASE_DIR, "_Buy_Signals.parquet")
 LIVE_TRADES_PATH = os.path.join(BASE_DIR, "_Live_trades.parquet")
 
-# Cache for performance
 data_cache = {
     'last_update': None,
     'buy_signals': None,
@@ -44,19 +40,14 @@ data_cache = {
     'charts': {}
 }
 
-# Cache timeout in seconds
 CACHE_TIMEOUT = 10
 
-# Sample historical price data (for charts when market is closed)
 HISTORICAL_DATA = {}
-
-
 
 def load_buy_signals(force_refresh=False):
     """Load current buy signals from parquet file with correct typing"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         data_cache['buy_signals'] is not None and 
         data_cache['last_update'] is not None and 
@@ -72,10 +63,8 @@ def load_buy_signals(force_refresh=False):
                 'UpProbability', 'LastSellPrice', 'PositionSize'
             ])
         
-        # Load data
         df = pd.read_parquet(BUY_SIGNALS_PATH)
         
-        # Ensure column types
         if 'Symbol' in df.columns and not pd.api.types.is_string_dtype(df['Symbol']):
             df['Symbol'] = df['Symbol'].astype(str)
         
@@ -90,7 +79,6 @@ def load_buy_signals(force_refresh=False):
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
         
-        # Log info
         logging.info(f"Loaded buy signals file with {len(df)} rows")
         if not df.empty:
             logging.info(f"First row: {df.iloc[0].to_dict()}")
@@ -99,7 +87,6 @@ def load_buy_signals(force_refresh=False):
             active_count = df['IsCurrentlyBought'].sum()
             logging.info(f"Active positions count: {active_count}")
         
-        # Update cache
         data_cache['buy_signals'] = df
         data_cache['last_update'] = current_time
         
@@ -119,7 +106,6 @@ def load_live_trades(force_refresh=False):
     """Load live trades history from parquet file with caching"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         data_cache['live_trades'] is not None and 
         data_cache['last_update'] is not None and 
@@ -127,7 +113,6 @@ def load_live_trades(force_refresh=False):
         return data_cache['live_trades']
     
     try:
-        # Check if file exists
         if not os.path.exists(LIVE_TRADES_PATH):
             logging.warning(f"Live trades file not found at: {LIVE_TRADES_PATH}")
             return pd.DataFrame(columns=[
@@ -136,15 +121,12 @@ def load_live_trades(force_refresh=False):
                 'UpProbability', 'LastSellPrice', 'PositionSize'
             ])
         
-        # Load and process the data
         df = pd.read_parquet(LIVE_TRADES_PATH)
         
-        # Handle datetime columns for JSON serialization
         for col in df.columns:
             if pd.api.types.is_datetime64_any_dtype(df[col]):
                 df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Update cache
         data_cache['live_trades'] = df
         data_cache['last_update'] = current_time
         
@@ -153,7 +135,6 @@ def load_live_trades(force_refresh=False):
     
     except Exception as e:
         logging.error(f"Error loading live trades: {str(e)}")
-        # Return empty DataFrame with expected columns
         return pd.DataFrame(columns=[
             'Symbol', 'LastBuySignalDate', 'LastBuySignalPrice',
             'IsCurrentlyBought', 'ConsecutiveLosses', 'LastTradedDate',
@@ -166,19 +147,15 @@ def load_historical_price_data(symbol, days=100):
     """
     Load historical price data for a symbol from the PriceData directory
     """
-    # Path to your price data file
     price_data_path = os.path.join(DATA_DIR, 'PriceData', f'{symbol}.parquet')
     
     try:
         if os.path.exists(price_data_path):
-            # Load actual historical price data
             df = pd.read_parquet(price_data_path)
             
-            # Convert Date column to datetime if needed
             if 'Date' in df.columns and not pd.api.types.is_datetime64_any_dtype(df['Date']):
                 df['Date'] = pd.to_datetime(df['Date'])
             
-            # Sort by date and limit to last N days
             df = df.sort_values('Date')
             if len(df) > days:
                 df = df.tail(days)
@@ -203,17 +180,14 @@ def generate_mock_price_data(symbol, days=100):
     start_date = end_date - timedelta(days=days)
     date_range = pd.date_range(start=start_date, end=end_date, freq='B')
     
-    # Start price between $10-200
     start_price = np.random.uniform(10, 200)
     
-    # Generate prices with random walk
     prices = [start_price]
     for i in range(1, len(date_range)):
         change = np.random.normal(0.001, 0.02)  
         new_price = prices[-1] * (1 + change)
         prices.append(new_price)
     
-    # Create DataFrame
     df = pd.DataFrame({
         'Date': date_range,
         'Open': prices,
@@ -256,10 +230,8 @@ def calculate_pnl(force_refresh=False):
         if len(trades_df) == 0:
             return default_metrics(active_df)
         
-        # Calculate metrics from trade history
         total_pnl = trades_df['PnL'].sum()
         
-        # Win/loss analysis
         winning_trades = trades_df[trades_df['PnL'] > 0]
         losing_trades = trades_df[trades_df['PnL'] < 0]
         
@@ -267,10 +239,8 @@ def calculate_pnl(force_refresh=False):
         avg_win = winning_trades['PnL'].mean() if len(winning_trades) > 0 else 0
         avg_loss = losing_trades['PnL'].mean() if len(losing_trades) > 0 else 0
         
-        # Count active positions
         active_positions = 0
         if 'IsCurrentlyBought' in active_df.columns:
-            # Convert to boolean if it's not already
             if active_df['IsCurrentlyBought'].dtype != bool:
                 active_df['IsCurrentlyBought'] = active_df['IsCurrentlyBought'].astype(str).str.lower() == 'true'
             active_positions = len(active_df[active_df['IsCurrentlyBought'] == True])
@@ -298,7 +268,6 @@ def default_metrics(active_df=None):
     """Return default metrics when no trade data is available"""
     active_positions = 0
     if active_df is not None and 'IsCurrentlyBought' in active_df.columns:
-        # Convert to boolean if it's not already
         if active_df['IsCurrentlyBought'].dtype != bool:
             active_df['IsCurrentlyBought'] = active_df['IsCurrentlyBought'].astype(str).str.lower() == 'true'
         active_positions = len(active_df[active_df['IsCurrentlyBought'] == True])
@@ -320,7 +289,6 @@ def create_price_chart(symbol, force_refresh=False):
     """Create a price chart for a specific symbol with caching"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         symbol in data_cache['charts'] and 
         data_cache['last_update'] is not None and 
@@ -333,7 +301,6 @@ def create_price_chart(symbol, force_refresh=False):
         if df.empty:
             return create_empty_chart(f"No price data available for {symbol}")
         
-        # Create a candlestick chart
         fig = go.Figure(data=[go.Candlestick(
             x=df['Date'],
             open=df['Open'],
@@ -343,7 +310,6 @@ def create_price_chart(symbol, force_refresh=False):
             name=symbol
         )])
         
-        # Add volume as a bar chart on a secondary y-axis
         fig.add_trace(go.Bar(
             x=df['Date'],
             y=df['Volume'],
@@ -353,7 +319,6 @@ def create_price_chart(symbol, force_refresh=False):
             yaxis='y2'
         ))
         
-        # Add buy and sell markers if available in trade history
         try:
             # Check for buy signals
             buy_signals = load_buy_signals(force_refresh=True)
@@ -453,7 +418,6 @@ def create_performance_chart(force_refresh=False):
     """Create a performance chart based on actual trade history"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         'performance' in data_cache['charts'] and 
         data_cache['last_update'] is not None and 
@@ -461,7 +425,6 @@ def create_performance_chart(force_refresh=False):
         return data_cache['charts']['performance']
     
     try:
-        # Load trade history from parquet file
         trade_history_path = os.path.join(BASE_DIR, "trade_history.parquet")
         
         if not os.path.exists(trade_history_path):
@@ -473,21 +436,16 @@ def create_performance_chart(force_refresh=False):
         if len(trades_df) == 0:
             return create_empty_performance_chart("No trades in history")
             
-        # Ensure date columns are datetime
         for col in ['EntryDate', 'ExitDate']:
             if col in trades_df.columns:
                 trades_df[col] = pd.to_datetime(trades_df[col], errors='coerce')
         
-        # Sort by exit date
         trades_df = trades_df.sort_values('ExitDate')
         
-        # Create cumulative P&L
         trades_df['Cumulative_PnL'] = trades_df['PnL'].cumsum()
         
-        # Create the chart
         fig = go.Figure()
         
-        # Add cumulative P&L line
         fig.add_trace(go.Scatter(
             x=trades_df['ExitDate'],
             y=trades_df['Cumulative_PnL'],
@@ -496,7 +454,6 @@ def create_performance_chart(force_refresh=False):
             line=dict(color='green', width=2)
         ))
         
-        # Add individual trade markers
         fig.add_trace(go.Scatter(
             x=trades_df['ExitDate'],
             y=trades_df['PnL'],
@@ -508,7 +465,6 @@ def create_performance_chart(force_refresh=False):
             )
         ))
         
-        # Update layout
         fig.update_layout(
             title='Trading Performance',
             xaxis_title='Date',
@@ -551,7 +507,6 @@ def create_up_probability_distribution(force_refresh=False):
     """Create a histogram of actual UpProbability values from signals"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         'probability' in data_cache['charts'] and 
         data_cache['last_update'] is not None and 
@@ -559,15 +514,12 @@ def create_up_probability_distribution(force_refresh=False):
         return data_cache['charts']['probability']
     
     try:
-        # Load both current signals and trade history
         signals_df = load_buy_signals(force_refresh)
         
-        # Also check trade history for more data points
         trade_history_path = os.path.join(BASE_DIR, "trade_history.parquet")
         if os.path.exists(trade_history_path):
             trades_df = pd.read_parquet(trade_history_path)
             
-            # Combine UpProbability values from both sources
             up_probs = []
             
             if 'UpProbability' in signals_df.columns:
@@ -576,16 +528,13 @@ def create_up_probability_distribution(force_refresh=False):
             if 'UpProbability' in trades_df.columns:
                 up_probs.extend(trades_df['UpProbability'].dropna().tolist())
         else:
-            # Just use signals data
             up_probs = signals_df['UpProbability'].dropna().tolist() if 'UpProbability' in signals_df.columns else []
         
         if not up_probs:
             return create_empty_chart("No UpProbability data available")
             
-        # Create histogram data
         hist_data = pd.DataFrame({'UpProbability': up_probs})
         
-        # Create histogram
         fig = go.Figure()
         fig.add_trace(go.Histogram(
             x=hist_data['UpProbability'],
@@ -594,7 +543,6 @@ def create_up_probability_distribution(force_refresh=False):
             opacity=0.7
         ))
         
-        # Add vertical line for average
         avg_prob = np.mean(up_probs)
         fig.add_vline(
             x=avg_prob,
@@ -604,7 +552,6 @@ def create_up_probability_distribution(force_refresh=False):
             annotation_position="top right"
         )
         
-        # Update layout
         fig.update_layout(
             title='Distribution of UpProbability Values',
             xaxis_title='UpProbability',
@@ -616,7 +563,6 @@ def create_up_probability_distribution(force_refresh=False):
         
         chart_json = json.loads(plotly.io.to_json(fig))
         
-        # Update cache
         data_cache['charts']['probability'] = chart_json
         
         return chart_json
@@ -654,34 +600,27 @@ def active_trades():
     try:
         df = load_buy_signals(force_refresh)
         
-        # Log the loaded dataframe information
         logging.info(f"Loaded buy signals: {len(df)} rows, columns: {df.columns.tolist()}")
         
         if df.empty:
             logging.warning("Buy signals dataframe is empty")
             return jsonify([])
             
-        # Convert IsCurrentlyBought to boolean if it's not already
         if 'IsCurrentlyBought' in df.columns:
             if df['IsCurrentlyBought'].dtype != bool:
                 df['IsCurrentlyBought'] = df['IsCurrentlyBought'].astype(str).str.lower() == 'true'
             
-            # Log how many active positions we have
             active_count = len(df[df['IsCurrentlyBought'] == True])
             logging.info(f"Found {active_count} active positions out of {len(df)} signals")
             
-            # Get active positions
             active_df = df[df['IsCurrentlyBought'] == True].copy()
             
-            # Properly handle NaN values and date formatting for JSON serialization
             for col in active_df.columns:
                 if pd.api.types.is_datetime64_any_dtype(active_df[col]):
                     active_df[col] = active_df[col].dt.strftime('%Y-%m-%d')
                 elif pd.api.types.is_float_dtype(active_df[col]):
-                    # Replace NaN with None for JSON serialization
                     active_df[col] = active_df[col].replace({np.nan: None})
             
-            # Convert to records
             active = active_df.to_dict(orient='records')
             logging.info(f"Returning {len(active)} active positions")
             return jsonify(active)
@@ -707,14 +646,12 @@ def available_symbols():
             logging.warning(f"Price data directory not found: {price_data_dir}")
             return jsonify([])
             
-        # Get all parquet files in the directory
         symbols = []
         for file in os.listdir(price_data_dir):
             if file.endswith('.parquet'):
                 symbol = file.replace('.parquet', '')
                 symbols.append(symbol)
                 
-        # Sort alphabetically
         symbols.sort()
         
         logging.info(f"Found {len(symbols)} available symbols")
@@ -728,7 +665,6 @@ def load_trade_history(force_refresh=False):
     """Load trade history from the trade_history.parquet file"""
     current_time = time.time()
     
-    # Return cached data if available and not expired
     if (not force_refresh and 
         'trade_history' in data_cache and 
         data_cache['last_update'] is not None and 
@@ -736,7 +672,6 @@ def load_trade_history(force_refresh=False):
         return data_cache['trade_history']
     
     try:
-        # Path to trade history file
         trade_history_path = os.path.join(BASE_DIR, "trade_history.parquet")
         
         if not os.path.exists(trade_history_path):
@@ -746,15 +681,12 @@ def load_trade_history(force_refresh=False):
                 'Quantity', 'PnL', 'PnLPct', 'Commission'
             ])
         
-        # Load the data
         df = pd.read_parquet(trade_history_path)
         
-        # Handle datetime columns for JSON serialization
         for col in df.columns:
             if pd.api.types.is_datetime64_any_dtype(df[col]):
                 df[col] = df[col].dt.strftime('%Y-%m-%d')
         
-        # Update cache
         data_cache['trade_history'] = df
         data_cache['last_update'] = current_time
         
@@ -780,7 +712,6 @@ def trade_history():
         if df.empty:
             return jsonify([])
             
-        # Handle NaN values for JSON serialization
         for col in df.select_dtypes(include=['float']).columns:
             df[col] = df[col].replace({np.nan: None})
             
@@ -852,20 +783,15 @@ def kill_position():
         if not symbol:
             return jsonify({"error": "Symbol is required"}), 400
         
-        # In a real system, this would trigger your position closing logic
-        # For now, we'll just simulate it by updating the parquet file
         
-        # Load current signals
         signals_df = load_buy_signals(force_refresh=True)
         
-        # Convert to proper types if needed
         if 'Symbol' in signals_df.columns and signals_df['Symbol'].dtype != 'object':
             signals_df['Symbol'] = signals_df['Symbol'].astype(str)
             
         if 'IsCurrentlyBought' in signals_df.columns and signals_df['IsCurrentlyBought'].dtype != bool:
             signals_df['IsCurrentlyBought'] = signals_df['IsCurrentlyBought'].astype(str).str.lower() == 'true'
         
-        # Check if the symbol exists and is currently bought
         if symbol not in signals_df['Symbol'].values:
             return jsonify({"error": f"Symbol {symbol} not found"}), 404
         
@@ -873,22 +799,15 @@ def kill_position():
         if not mask.any():
             return jsonify({"error": f"Symbol {symbol} is not currently bought"}), 400
         
-        # Update the signal (in a real system, this would need to be synchronized with your actual trade execution)
         signals_df.loc[mask, 'IsCurrentlyBought'] = False
         signals_df.loc[mask, 'LastTradedDate'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Here we would save the updated DataFrame back to the parquet file
-        # In a production system, you would need proper file locking
-        # signals_df.to_parquet(BUY_SIGNALS_PATH)
         
-        # For this demo, we'll just log the action
         logging.info(f"Emergency exit triggered for {symbol}")
         
-        # Clear cache
         data_cache['buy_signals'] = None
         data_cache['last_update'] = None
         
-        # Emit a socket event to update the UI
         socketio.emit('position_killed', {
             'symbol': symbol,
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -903,18 +822,15 @@ def kill_position():
         logging.error(f"Error in kill_position API: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# Automatic background data refresh (every CACHE_TIMEOUT seconds)
 def background_refresh():
     """Background thread to refresh data periodically"""
     while True:
         try:
             logging.info("Running background data refresh")
-            # Force refresh all data
             load_buy_signals(force_refresh=True)
             load_live_trades(force_refresh=True)
             calculate_pnl(force_refresh=True)
             
-            # Also refresh charts for active symbols
             signals_df = load_buy_signals()
             if 'IsCurrentlyBought' in signals_df.columns:
                 if signals_df['IsCurrentlyBought'].dtype != bool:
@@ -927,7 +843,6 @@ def background_refresh():
             create_performance_chart(force_refresh=True)
             create_up_probability_distribution(force_refresh=True)
             
-            # Emit refresh event to clients
             socketio.emit('data_refreshed', {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             })
@@ -935,7 +850,6 @@ def background_refresh():
         except Exception as e:
             logging.error(f"Error in background refresh: {str(e)}")
         
-        # Sleep for the cache timeout period
         time.sleep(CACHE_TIMEOUT)
 
 @socketio.on('connect')
@@ -950,17 +864,13 @@ def handle_disconnect():
     logging.info(f"Client disconnected: {request.sid}")
 
 if __name__ == '__main__':
-    # Ensure directories exist
     os.makedirs(DATA_DIR, exist_ok=True)
     
-    # Print startup information
     print(f"Dashboard starting on http://localhost:5000")
     print(f"Looking for buy signals at: {BUY_SIGNALS_PATH}")
     print(f"Looking for live trades at: {LIVE_TRADES_PATH}")
     
-    # Start background refresh thread
     refresh_thread = threading.Thread(target=background_refresh, daemon=True)
     refresh_thread.start()
     
-    # Start the SocketIO server
     socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)

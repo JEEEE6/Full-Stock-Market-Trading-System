@@ -572,6 +572,8 @@ class StockSniperLive(bt.Strategy):
             logger.error(f"Error updating trade data for {symbol}: {e}")
             logger.error(traceback.format_exc())
     
+
+    
     def handle_sell_order(self, order):
         """Handle completed sell orders with proper trade data updating."""
         symbol = order.data._name
@@ -595,6 +597,8 @@ class StockSniperLive(bt.Strategy):
             
         logger.info(f"Cleaned up tracking data for {symbol} after sell completion")
         
+
+
     def handle_bracket_failure(self, symbol, size, avg_price):
         """
         Handle cases where a buy order was filled but the bracket orders failed.
@@ -899,7 +903,50 @@ class StockSniperLive(bt.Strategy):
 
 
 
-    def process_buy_signal(self, data):
+
+
+
+
+
+
+
+
+
+
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+    ##=====================================================[Start of Buy Function]====================================================##
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    ## Notes.
+    ## work well simple requires manual exit after the date has passed for sell time would be betetr if we could use more complex orders 
+    ## would be nice if there was automatic closing after 5 days 
+    ## would be nice if the daily profit requirement was exicuted using conditional order types as well
+
+
+    def process_buy_signal111(self, data):
         symbol = data._name
         
         if symbol in [o.get('data_name') for o in self.order_dict.values()]:
@@ -984,29 +1031,51 @@ class StockSniperLive(bt.Strategy):
                 self.cancel(limit_order)
 
 
-    def process_buy_signal(self, data):
+
+
+
+
+
+
+
+
+    ##===================[potental new buy function for test on live feb 24th]========================##
+
+    ##===================[potental new buy function for test on live feb 24th]========================##
+
+    ##===================[potental new buy function for test on live feb 24th]========================##
+
+    ##===================[potental new buy function for test on live feb 24th]========================##
+
+    ## notes.
+    ## more complex order types for better execution howerver trailing stops require limit order types for entry not sure about the algo use
+    ## still needs better error handling and logging
+    ## still needs time based exits and daily profit requirements using conditional order types
+
+
+    def process_buy_signal222(self, data):
         """Process buy signals with IB-specific order types for Canadian residents"""
         symbol = data._name
-        
+
         # Skip if already processing this symbol
         if symbol in [o.get('data_name') for o in self.order_dict.values()]:
             return
-    
+
         # Get position size from your existing logic
         size = self.calculate_position_size(data)
         if size <= 0:
             return
-    
+
         # Get current price with safety checks
         current_price = data.close[0]
         if current_price <= 0:
             return
-    
+
         # Order parameters - Will become function arguments
         take_profit_pct = 2.0  # Example: 2% target
         trail_stop_pct = 1.0   # Example: 1% trailing stop
         oca_group = f"{symbol}_{datetime.now().strftime('%Y%m%d%H%M')}"
-    
+
         try:
             # =====================================================================
             # 1. MAIN ENTRY ORDER - Using IBKR Smart Routing with Price Improvement
@@ -1024,7 +1093,7 @@ class StockSniperLive(bt.Strategy):
                 },
                 routing='SMART' if self.p.use_smart_routing else 'IBKRATS'
             )
-    
+
             # =====================================================================
             # 2. TAKE PROFIT ORDER - Pegged to Midpoint with ATS
             # =====================================================================
@@ -1043,7 +1112,7 @@ class StockSniperLive(bt.Strategy):
                     'tif': 'GTC'   # Good-Til-Canceled
                 }
             )
-    
+
             # =====================================================================
             # 3. TRAILING STOP - Using IB's Advanced Trailing Logic
             # =====================================================================
@@ -1063,7 +1132,7 @@ class StockSniperLive(bt.Strategy):
                 },
                 routing='SMART'  # Accessible in Canada for US equities
             )
-    
+
             # =====================================================================
             # Order Tracking - Add additional IB-specific metadata
             # =====================================================================
@@ -1082,13 +1151,256 @@ class StockSniperLive(bt.Strategy):
                     'trail_stop_pct': trail_stop_pct
                 }
             }
-    
+
         except Exception as e:
             self.log_error(f"Order failed for {symbol}: {str(e)}")
             self.cancel_orders_for_symbol(symbol)
-    
 
 
+
+    ##===================[potental new buy function for test on live feb 25th]========================##
+
+    ##===================[potental new buy function for test on live feb 25th]========================##
+
+    ##===================[potental new buy function for test on live feb 25th]========================##
+
+    ##===================[potental new buy function for test on live feb 25th]========================##
+
+
+    ## notes.
+    ## still unsure if the oreder types are accecpatble like using trailing stop limit with a non limit entry type 
+    ## trade exit after 5 days could still use work attaching the order types together
+    ## meed more testing to see if the adaptive algo stuff leads to ppartial fills 
+    ## need more testing if i can tighten the params to get slightly better fills 
+
+    def process_buy_signal333(self, data):
+        """
+        Comprehensive buy signal processor with advanced IB order types for optimal execution.
+        All logic contained in a single function for easier maintenance.
+        """
+        symbol = data._name
+
+        # Skip if already processing this symbol
+        if symbol in [o.get('data_name') for o in self.order_dict.values()]:
+            logger.info(f"Skipping {symbol} - Order already pending")
+            return
+
+        # Check if symbol is in buy signals list
+        buy_signals = self.trading_data[
+            (self.trading_data['IsCurrentlyBought'] == False) & 
+            (self.trading_data['LastBuySignalDate'].notna())
+        ]
+
+        if symbol not in buy_signals['Symbol'].values:
+            logger.info(f"Skipping {symbol} - Not in buy signals list")
+            return
+
+        # Calculate position size based on risk parameters    
+        size = self.calculate_position_size(data)
+        if size <= 0:
+            logger.info(f"Skipping {symbol} - Calculated position size is zero")
+            return
+
+        # Get current market data
+        try:
+            current_price = data.close[0]
+            if current_price <= 0:
+                logger.error(f"Invalid price for {symbol}: {current_price}")
+                return
+
+            # Get ATR for volatility calculations
+            atr_value = self.inds[data]['atr'][0] if data in self.inds and len(self.inds[data]['atr']) > 0 else current_price * 0.02
+
+            # Calculate price points
+            tick_size = 0.01 if current_price >= 1.0 else 0.0001
+
+            # Check stock characteristics to determine best order approach
+            is_liquid = data.volume[0] > self.p.min_avg_volume if hasattr(data, 'volume') and len(data.volume) > 0 else False
+            is_volatile = (atr_value / current_price) > 0.03  # 3% daily volatility is considered high
+
+            # Generate unique OCA group for exit orders
+            oca_group = f"{symbol}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+            # Determine if this is a US stock for routing decisions
+            is_us_stock = True  # Default assumption
+            if symbol.startswith('.') or symbol.startswith('$') or symbol.startswith('^'):
+                is_us_stock = False
+
+            # =====================================================================
+            # MAIN ENTRY ORDER 
+            # =====================================================================
+            logger.info(f"Creating entry order for {symbol}: {size} shares around ${current_price:.2f}")
+
+            # Adjust limit price slightly above market for better fill probability
+            # More aggressive for volatile stocks, less for stable ones
+            price_buffer = max(tick_size * 3, current_price * 0.001)
+            limit_price = round((current_price + price_buffer) / tick_size) * tick_size
+
+            # Choose routing method based on stock characteristics
+            if is_us_stock:
+                routing = 'SMART'  # SMART routing for US stocks
+                algo_type = 'Adaptive' if is_volatile else None  # Adaptive algo for volatile stocks
+            else:
+                routing = 'SMART'  # Default to SMART for non-US 
+                algo_type = None   # No special algo for non-US typically
+
+            # Create the main entry order
+            if algo_type == 'Adaptive':
+                # For volatile stocks, use Adaptive algorithm
+                main_order = self.buy(
+                    data=data,
+                    size=size,
+                    exectype=bt.Order.Limit,
+                    price=limit_price,
+                    transmit=False,
+                    IBalgo='Adaptive',
+                    IBalgoParams={
+                        'adaptivePriority': 'Normal',
+                        'adaptiveUrgency': 'Patient'  # Patient for better price
+                    },
+                    routing=routing,
+                    IBparams={
+                        'tif': 'DAY',  # Day order
+                        'transmit': False
+                    }
+                )
+                logger.info(f"Using Adaptive algorithm for entry on volatile stock {symbol}")
+            else:
+                # For regular stocks, use standard limit order
+                main_order = self.buy(
+                    data=data,
+                    size=size,
+                    exectype=bt.Order.Limit,
+                    price=limit_price,
+                    transmit=False,
+                    routing=routing,
+                    IBparams={
+                        'tif': 'DAY',
+                        'transmit': False
+                    }
+                )
+                logger.info(f"Using standard limit order for entry on {symbol} at ${limit_price:.2f}")
+
+            # =====================================================================
+            # TAKE PROFIT ORDER
+            # =====================================================================
+            # Calculate take profit price, adjusted for volatility
+            volatility_factor = min(max(atr_value / current_price, 0.01), 0.05)  # Cap between 1-5%
+            take_profit_pct = self.p.take_profit_percent
+            take_profit_price = round(current_price * (1 + take_profit_pct/100) / tick_size) * tick_size
+
+            logger.info(f"Setting take profit at ${take_profit_price:.2f} ({take_profit_pct:.1f}%)")
+
+            # Create take profit order
+            profit_order = self.sell(
+                data=data,
+                size=size,
+                exectype=bt.Order.Limit,
+                price=take_profit_price,
+                parent=main_order,
+                transmit=False,
+                routing='IBKRATS' if is_us_stock else routing,  # Use IBKR ATS for US stocks
+                IBparams={
+                    'ocaGroup': oca_group,
+                    'ocaType': 1,  # Cancel all other orders on fill
+                    'tif': 'GTC',  # Good-till-canceled
+                    'outsideRth': True  # Allow execution outside regular hours
+                }
+            )
+
+            # =====================================================================
+            # TRAILING STOP ORDER
+            # =====================================================================
+            # Calculate trailing stop parameters based on ATR and strategy params
+            trail_pct = self.p.trailing_stop_atr_multiple / 100  # Convert to decimal
+
+            logger.info(f"Setting trailing stop with {trail_pct*100:.1f}% trail")
+
+            # Use trailing stop limit for more control
+            trail_stop_order = self.sell(
+                data=data,
+                size=size,
+                exectype=bt.Order.StopTrail,  # Use simple trailing stop for reliability
+                trailpercent=trail_pct,
+                parent=main_order,
+                transmit=True,  # This transmits all orders in the bracket
+                IBparams={
+                    'ocaGroup': oca_group,
+                    'ocaType': 1,
+                    'tif': 'GTC',
+                    'outsideRth': False  # Only during regular hours for stops
+                },
+                routing=routing
+            )
+
+            # =====================================================================
+            # ORDER TRACKING  
+            # =====================================================================
+            self.order_dict[main_order.ref] = {
+                'order': main_order,
+                'data_name': symbol,
+                'status': 'SUBMITTED',
+                'children': {
+                    'profit': profit_order,
+                    'stop': trail_stop_order
+                },
+                'oca_group': oca_group,
+                'take_profit': take_profit_price,
+                'entry_price': limit_price,
+                'params': {
+                    'size': size,
+                    'entry_price': limit_price,
+                    'take_profit_pct': take_profit_pct,
+                    'trail_pct': trail_pct,
+                    'atr': atr_value
+                },
+                'submission_time': datetime.now().isoformat()
+            }
+
+            logger.info(f"Order package submitted for {symbol}: "
+                       f"Entry at ${limit_price:.2f}, "
+                       f"Take profit at ${take_profit_price:.2f}, "
+                       f"Trailing stop at {trail_pct*100:.1f}%")
+
+        except Exception as e:
+            logger.error(f"Error placing bracket order for {symbol}: {e}")
+            logger.error(traceback.format_exc())
+
+            # Clean up any orders that might have been created
+            try:
+                if 'main_order' in locals() and main_order:
+                    self.cancel(main_order)
+                if 'profit_order' in locals() and profit_order:
+                    self.cancel(profit_order)
+                if 'trail_stop_order' in locals() and trail_stop_order:
+                    self.cancel(trail_stop_order)
+            except Exception as cleanup_err:
+                logger.error(f"Error during order cleanup: {cleanup_err}")
+
+        return
+
+
+
+
+
+
+
+
+
+
+
+
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
+    ##=====================================================[End of Buy Function]====================================================##
 
 
 
@@ -1278,10 +1590,8 @@ def finalize_positions_sync(ib, trading_data_path='_Live_trades.parquet'):
                 size = pos.position
                 real_positions[symbol] = size
         
-        # 2. Read your local trades DataFrame
         df = pd.read_parquet(trading_data_path)
 
-        # Ensure required columns exist
         required_columns = {'Symbol', 'IsCurrentlyBought'}
         if not required_columns.issubset(df.columns):
             logger.warning("DataFrame missing required columns (Symbol, IsCurrentlyBought).")
@@ -1439,7 +1749,6 @@ def create_ib_connection(host='127.0.0.1', port=7497, max_attempts=3, timeout=20
 def disconnect_ib_safely(store, ib, debug=True):
     """
     Safely disconnect from IB with proper cleanup to avoid hanging connections.
-    Uses the simplified approach that works in your test script.
     
     Args:
         store: IBStore instance
@@ -1449,7 +1758,6 @@ def disconnect_ib_safely(store, ib, debug=True):
     Returns:
         bool: True if disconnection was attempted
     """
-    dprint = globals().get('dprint', print)  # Use dprint if available, otherwise use print
     
     if debug:
         dprint("Starting IB disconnection process")

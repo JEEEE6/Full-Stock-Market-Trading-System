@@ -78,7 +78,7 @@ DEFAULT_BATCH_SIZE = 48       # Process more tickers per batch
 MAX_WORKERS_PER_BATCH = 16    # Higher concurrent downloads
 REQUEST_DELAY = 0.1           # Minimal delay between requests
 BATCH_PAUSE = 0.5             # Shorter pause between batches
-CONNECTION_POOL_SIZE = 4     # Maximum connections to maintain
+CONNECTION_POOL_SIZE = 4      # Maximum connections to maintain
 REQUEST_TIMEOUT = 10          # Timeout for requests in seconds
 
 # Ensure necessary directories exist
@@ -86,7 +86,6 @@ os.makedirs(DATA_DIRECTORY, exist_ok=True)
 os.makedirs(LOG_DIRECTORY, exist_ok=True)
 os.makedirs(RF_PREDICTIONS_DIRECTORY, exist_ok=True) 
 
-# Set up logging - minimize logging overhead for speed
 
 class ConnectionPool:
     """

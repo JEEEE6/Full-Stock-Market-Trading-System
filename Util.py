@@ -73,6 +73,10 @@ STRATEGY_PARAMS_TUPLE = (
     # Position timeout and evaluation parameters         
     ('position_timeout', 5),            # Maximum days to hold a position
     ('min_daily_return', 1.0),          # Minimum expected daily return
+
+    # Volume filter parameters
+    ('min_dollar_volume', 1000000),     # Minimum dollar volume ($1M)
+    ('min_avg_volume', 10000),          # Minimum average volume (shares)
     
     # Other system parameters
     ('lockup_days', 3),                 # Trading lockup period
@@ -81,6 +85,8 @@ STRATEGY_PARAMS_TUPLE = (
     ('stop_loss_percent', 5.0),         # Standard stop loss percentage
     ('expected_profit_per_day_percentage', 0.25) # Expected profit per day
 )
+
+
 
 # Strategy parameters as dictionary for easier access
 STRATEGY_PARAMS = {
@@ -108,6 +114,10 @@ STRATEGY_PARAMS = {
     'position_timeout': 5,              # Maximum days to hold a position
     'min_daily_return': 1.0,            # Minimum expected daily return
     
+    # Volume filter parameters
+    'min_dollar_volume': 1000000,       # Minimum dollar volume ($10M)
+    'min_avg_volume': 10000,
+
     # Other system parameters
     'lockup_days': 3,                   # Trading lockup period
     'rule_201_threshold': -9.99,        # Rule 201 threshold
@@ -118,9 +128,9 @@ STRATEGY_PARAMS = {
 
 
 
-#atr take profit 1.0
+#atr take profit 1.8
 
-#atr stop loss 1.0
+#atr stop loss 0.98
 
 ##change the atr trailing stop each 
 
