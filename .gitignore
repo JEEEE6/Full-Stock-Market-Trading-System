@@ -1,5 +1,6 @@
 # Ignore model data and large datasets
 Data/*
+ZZZZZZ_btcData/*
 Data/ModelData/*
 Data/IndicatorData/*
 Data/PriceData/*

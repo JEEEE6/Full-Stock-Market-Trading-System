@@ -28,8 +28,6 @@ except ImportError:
     print("CatBoost not installed. Run 'pip install catboost' to enable CatBoost mode.")
 
 
-
-
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--runpercent", type=int, default=50, help="Percentage of files to process.")
 argparser.add_argument("--clear", action='store_true', help="Flag to clear the model and data directories.")

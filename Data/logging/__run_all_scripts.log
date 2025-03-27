@@ -113,3 +113,21 @@
 [2025-03-20 20:25:37] -----------------------------------------
 [2025-03-20 20:25:37] Preparing to run 'Bulk Price Downloader'...
 [2025-03-20 20:26:07] Executing: C:\Users\Masam\miniconda3\envs\tf\python.exe C:\Users\Masam\Desktop\Stock-Market-LSTM\2__BulkPriceDownloader.py --RefreshMode
+[2025-03-21 20:25:03] =========================================
+[2025-03-21 20:25:03] Script execution started. Base path: C:\Users\Masam\Desktop\Stock-Market-LSTM
+[2025-03-21 20:25:03] =========================================
+[2025-03-21 20:25:03] Preparing to run 'Ticker Downloader'...
+[2025-03-22 20:25:04] =========================================
+[2025-03-22 20:25:04] Script execution started. Base path: C:\Users\Masam\Desktop\Stock-Market-LSTM
+[2025-03-22 20:25:04] =========================================
+[2025-03-22 20:25:04] Preparing to run 'Ticker Downloader'...
+[2025-03-23 20:25:04] =========================================
+[2025-03-23 20:25:04] Script execution started. Base path: C:\Users\Masam\Desktop\Stock-Market-LSTM
+[2025-03-23 20:25:04] =========================================
+[2025-03-23 20:25:04] Preparing to run 'Ticker Downloader'...
+[2025-03-23 20:25:34] Executing: C:\Users\Masam\miniconda3\envs\tf\python.exe C:\Users\Masam\Desktop\Stock-Market-LSTM\1__TickerDownloader.py --ImmediateDownload
+[2025-03-23 20:25:36] 'Ticker Downloader' completed successfully.
+[2025-03-23 20:25:36] Time elapsed for 'Ticker Downloader': 2.46 seconds.
+[2025-03-23 20:25:36] -----------------------------------------
+[2025-03-23 20:25:36] Preparing to run 'Bulk Price Downloader'...
+[2025-03-23 20:26:06] Executing: C:\Users\Masam\miniconda3\envs\tf\python.exe C:\Users\Masam\Desktop\Stock-Market-LSTM\2__BulkPriceDownloader.py --RefreshMode

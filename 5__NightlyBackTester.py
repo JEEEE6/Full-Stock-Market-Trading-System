@@ -29,6 +29,215 @@ from Util import (
 
 
 
+
+class IBKRAdaptiveCommission(bt.CommInfoBase):
+    """
+    Interactive Brokers Adaptive Commission and Slippage for testing
+    
+    This commission model simulates IBKR's tiered pricing structure with:
+    - Minimum per-order commissions
+    - Per-share commissions with caps
+    - Partial fill handling
+    - Integrated slippage modeling
+    
+    Parameters:
+    -----------
+    commission_per_share : float
+        Cost per share (default: 0.0035 for US stocks tiered pricing)
+    min_per_order : float
+        Minimum commission per order (default: 0.35 for US stocks)
+    max_per_order_pct : float
+        Maximum commission as percentage of trade value (default: 0.005 - 0.5%)
+    exchange_fees : float
+        Additional exchange/regulatory fees per share (default: 0.0002)
+    partial_fill_min : float
+        Minimum commission for partial fills (default: 0.35)
+    atr_period : int
+        ATR period for slippage calculation (default: 14)
+    slip_base : float
+        Base slippage in percentage points (default: 0.01 - 1 basis point)
+    slip_size_factor : float
+        How much to increase slippage based on order size (default: 0.15)
+    slip_vol_factor : float
+        How much to increase slippage based on volume ratio (default: 0.1)
+    slip_atr_factor : float
+        How much to increase slippage based on volatility (default: 1.5)
+    min_dollar_volume : float
+        Minimum dollar volume filter for orders (default: 1000000)
+    min_avg_volume : int
+        Minimum average volume for orders (default: 10000)
+    """
+    
+    params = (
+        ('commission_per_share', 0.0035),  # $0.0035 per share
+        ('min_per_order', 0.35),           # $0.35 minimum per order
+        ('max_per_order_pct', 0.005),      # 0.5% cap of trade value
+        ('exchange_fees', 0.0002),         # $0.0002 per share for SEC/TAF/etc
+        ('partial_fill_min', 0.35),        # $0.35 minimum for partial fills
+        ('atr_period', 14),                # ATR period for slippage calculation
+        
+        # Slippage model parameters
+        ('slip_base', 0.0001),             # Base slippage (1bp)
+        ('slip_size_factor', 0.15),        # Size impact on slippage
+        ('slip_vol_factor', 0.1),          # Volume ratio impact
+        ('slip_atr_factor', 1.5),          # Volatility impact
+        
+        # For consistency with your strategy params
+        ('min_dollar_volume', 1000000),    # Minimum dollar volume filter
+        ('min_avg_volume', 10000),         # Minimum average volume
+        
+        # Standard commission info params
+        ('stocklike', True),               # Stock-like instrument
+        ('commtype', bt.CommInfoBase.COMM_FIXED),  # Fixed commission type
+    )
+    
+    def __init__(self):
+        super(IBKRAdaptiveCommission, self).__init__()
+        # Dictionary to store partial fills by order id
+        self.partial_fills = {}
+        # Cache for ATR values
+        self.atr_cache = {}
+        # Dictionary to store average volume by symbol
+        self.avg_volume_cache = {}
+    
+    def calculate_commission(self, size, price):
+        """Calculate commission according to IBKR tiered pricing structure"""
+        # Calculate share-based commission
+        abs_size = abs(size)
+        per_share_comm = abs_size * self.p.commission_per_share
+        
+        # Exchange and regulatory fees
+        exchange_fee = abs_size * self.p.exchange_fees
+        
+        # Calculate value-based commission cap
+        order_value = abs_size * price
+        value_cap = order_value * self.p.max_per_order_pct
+        
+        # Apply minimum commission
+        base_commission = max(per_share_comm, self.p.min_per_order)
+        
+        # Ensure commission doesn't exceed the percentage cap
+        commission = min(base_commission, value_cap) + exchange_fee
+        
+        return commission
+    
+    def _get_commission(self, size, price, pseudoexec):
+        """Calculate commission with partial fill tracking"""
+        if pseudoexec:
+            # During pre-execution calculation, just use normal method
+            return self.calculate_commission(size, price)
+        
+        # Generate a unique identifier for this execution
+        # In a real implementation, you should use the actual order id
+        order_id = id(price) + id(size)
+        
+        if order_id in self.partial_fills:
+            # This is a continuation of a partial fill
+            self.partial_fills[order_id]['executed_size'] += abs(size)
+            self.partial_fills[order_id]['fills'] += 1
+            
+            # Apply minimum commission for this partial fill
+            partial_commission = max(
+                self.calculate_commission(size, price),
+                self.p.partial_fill_min
+            )
+            
+            return partial_commission
+        else:
+            # This is a new order
+            self.partial_fills[order_id] = {
+                'executed_size': abs(size),
+                'fills': 1
+            }
+            
+            # Apply standard commission calculation
+            return self.calculate_commission(size, price)
+    
+    def get_slippage(self, data, size, price):
+        """
+        Calculate slippage based on order size, market conditions and volatility
+        
+        Returns slippage amount (to be added to buy price or subtracted from sell price)
+        """
+        # Get or calculate average volume for this symbol
+        symbol = data._name
+        if symbol not in self.avg_volume_cache:
+            # Calculate 20-day average volume
+            vol_history = [data.volume[i] for i in range(-20, 0) if i < len(data.volume)]
+            if not vol_history:
+                avg_volume = data.volume[0]  # Fallback to current volume
+            else:
+                avg_volume = sum(vol_history) / len(vol_history)
+            self.avg_volume_cache[symbol] = max(avg_volume, 1)  # Avoid division by zero
+        
+        avg_volume = self.avg_volume_cache[symbol]
+        
+        # Get volatility measure (ATR / price)
+        if symbol not in self.atr_cache:
+            # This would ideally use the actual ATR indicator from your strategy
+            # but for simplicity we'll calculate a basic approximation
+            high_low_range = [
+                data.high[i] - data.low[i] for i in range(-self.p.atr_period, 0)
+                if i < len(data.high) and i < len(data.low)
+            ]
+            if not high_low_range:
+                volatility = (data.high[0] - data.low[0]) / price
+            else:
+                volatility = sum(high_low_range) / len(high_low_range) / price
+            self.atr_cache[symbol] = volatility
+        
+        volatility = self.atr_cache[symbol]
+        
+        # Order size relative to average volume (capped at 30%)
+        volume_ratio = min(abs(size) / avg_volume, 0.3)
+        
+        # Calculate base slippage percentage
+        slippage_pct = (
+            self.p.slip_base +
+            (volume_ratio * self.p.slip_size_factor) +
+            (1 / max(avg_volume, 1) * self.p.slip_vol_factor) +
+            (volatility * self.p.slip_atr_factor)
+        )
+        
+        # Dollar volume filter - increase slippage for low liquidity
+        dollar_volume = price * data.volume[0]
+        if dollar_volume < self.p.min_dollar_volume:
+            slippage_pct *= 1.5
+        
+        # Volume filter - increase slippage for low volume
+        if data.volume[0] < self.p.min_avg_volume:
+            slippage_pct *= 1.5
+        
+        # Cap slippage at reasonable bounds (0.05% to 1.5%)
+        slippage_pct = max(0.0005, min(0.015, slippage_pct))
+        
+        # Calculate actual slippage amount
+        slippage_amount = price * slippage_pct
+        
+        # Slippage direction depends on order direction
+        # Buying: price goes up, Selling: price goes down
+        return slippage_amount if size > 0 else -slippage_amount
+
+    def getvaluesize(self, size, price):
+        return size * price
+
+    def getvalue(self, position, price):
+        """Returns the value of a position given a price"""
+        return position.size * price
+        
+    def get_margin(self, price):
+        """Return margin needed for single item"""
+        return price  # Full price for cash stocks
+
+
+
+
+
+
+
+
+
+
 def get_last_trading_date():
     """Get the last trading date from NYSE calendar."""
     nyse = mcal.get_calendar('NYSE')
@@ -343,6 +552,61 @@ def update_trade_result(symbol, is_loss, exit_price=None, exit_date=None):
 
 
 
+class AdaptiveSlippageCommissionScheme(bt.CommInfoBase):
+    params = (
+        ('commission', 0.0),  # Set commission separately
+        ('min_slippage', 0.0005),  # 5 basis points minimum
+        ('max_slippage', 0.015),   # 150 basis points maximum
+        ('atr_period', 14),        # Same as your strategy
+    )
+    
+    def __init__(self):
+        super(AdaptiveSlippageCommissionScheme, self).__init__()
+        self.atr_cache = {}
+    
+    def _get_credit_interest(self, size, price, days, dt):
+        return 0.0  # No interest in this model
+    
+    def _get_commission(self, size, price, pseudoexec):
+        return self.p.commission * abs(size) * price
+    
+    def get_slippage(self, order, data, dt):
+        """Calculate dynamic slippage based on order size and market conditions"""
+        if order.exectype != bt.Order.Market:
+            return 0.0  # Only apply to market orders as per your docs
+        
+        # Get required metrics
+        order_size = abs(order.size)
+        current_volume = data.volume[0]
+        avg_volume = sum(data.volume.get(size=20, fallback=True)) / 20
+        price = data.close[0]
+        dollar_volume = price * current_volume
+        
+        # Get or calculate ATR for volatility estimate
+        if data._name not in self.atr_cache:
+            atr = bt.indicators.ATR(data, period=self.p.atr_period)
+            self.atr_cache[data._name] = atr[-1]
+        volatility = self.atr_cache[data._name]
+        
+        # Apply core slippage formula
+        volume_ratio = min(order_size / max(avg_volume, 1), 0.3)
+        liquidity_factor = min(1_000_000 / max(dollar_volume, 1), 0.02)
+        
+        base_slippage = self.p.min_slippage + (volume_ratio * 0.015) + (liquidity_factor * 0.01)
+        volatility_multiplier = 1.0 + (volatility / price) * 5.0 if price > 0 else 1.0
+        
+        slippage_pct = base_slippage * volatility_multiplier
+        final_slippage = max(self.p.min_slippage, min(self.p.max_slippage, slippage_pct))
+        
+        # Direction matters - buys get worse prices (higher), sells get worse prices (lower)
+        slippage_value = price * final_slippage * (1 if order.isbuy() else -1)
+        return slippage_value
+
+
+
+
+
+
 class EnhancedPandasData(bt.feeds.PandasData):
     """Enhanced PandasData class that includes ML signals and technical indicators."""
     zzzlines = ('dist_to_support', 'dist_to_resistance', 'UpProbability', 'UpPrediction', 'atr')
@@ -639,8 +903,29 @@ class StockSniperStrategy(bt.Strategy):
             logging.info(f"Processing date: {current_date}")
             self.last_logged_date = current_date
 
-        current_equity = self.broker.getvalue()
+        
 
+        # Check if we're on the last trading date - we want to make sure we generate signals
+        # but we don't need to modify the trading logic
+        if current_date == self.last_trading_date:
+            logging.info(f"On last trading day ({current_date}). Will generate predictions.")
+            # Don't immediately generate signals - let the normal flow handle it
+            # The process_buy_candidates method will handle force-selecting the best stock if needed
+
+        # Continue with normal position management
+        sell_data = [d for d in self.datas if self.getposition(d).size > 0]
+        for d in sell_data:
+            self.evaluate_sell_conditions(d, current_date)
+
+        if self.open_positions < self.p.max_positions:
+            buy_candidates = self.get_buy_candidates(current_date)
+            if buy_candidates or current_date == self.last_trading_date:
+                # This will now handle selecting the best stock if needed
+                self.process_buy_candidates(buy_candidates, current_date)
+
+
+        current_equity = self.broker.getvalue()
+        
         # Monthly performance tracking
         if current_month != self.current_month:
             if self.current_month is not None:
@@ -675,23 +960,6 @@ class StockSniperStrategy(bt.Strategy):
             self.last_year_equity = current_equity
             logging.info(f"Starting new year: {current_year}")
 
-        # Check if we're on the last trading date - we want to make sure we generate signals
-        # but we don't need to modify the trading logic
-        if current_date == self.last_trading_date:
-            logging.info(f"On last trading day ({current_date}). Will generate predictions.")
-            # Don't immediately generate signals - let the normal flow handle it
-            # The process_buy_candidates method will handle force-selecting the best stock if needed
-
-        # Continue with normal position management
-        sell_data = [d for d in self.datas if self.getposition(d).size > 0]
-        for d in sell_data:
-            self.evaluate_sell_conditions(d, current_date)
-
-        if self.open_positions < self.p.max_positions:
-            buy_candidates = self.get_buy_candidates(current_date)
-            if buy_candidates or current_date == self.last_trading_date:
-                # This will now handle selecting the best stock if needed
-                self.process_buy_candidates(buy_candidates, current_date)
 
 
 
@@ -755,22 +1023,42 @@ class StockSniperStrategy(bt.Strategy):
         current_prob = data.UpProbability[0]
         
         # Immediate rejection if probability too low - increased from original
-        if current_prob < 0.55:  # Based on clear performance drop below this level
+        if current_prob < 0.775:  # Based on clear performance drop below this level
             return False
-    
+
+        
+ 
+        avg_volume = 0
+        for i in range(min(5, lookback_period)):
+            avg_volume += data.volume[-i]
+        avg_volume /= min(5, lookback_period)
+
+        min_avg_volume = self.p.min_avg_volume  # Use parameter from strategy
+        if avg_volume < min_avg_volume:
+            logging.info(f"Rejected {symbol} due to low average volume: {avg_volume:.0f} < {min_avg_volume:.0f}")
+            return False
+
+
         try:
             # Collect probability history
             prob_array = []
             for i in range(lookback_period):
                 if i < len(data):
                     prob_array.append(data.UpProbability[-i])
+                    
                 else:
                     break
                     
             if len(prob_array) >= 5:
                 # Calculate variance of probability values
                 prob_variance = np.var(prob_array)
-    
+
+
+
+
+                #if data.Volume[0] * data.Close[0] < 1000000:
+                #    return False
+
                 # Reject very low variance signals (poor predictive power)
                 if prob_variance < 0.0005:
                     return False
@@ -908,6 +1196,10 @@ class StockSniperStrategy(bt.Strategy):
         for d in self.datas:
             if self.getposition(d).size > 0:
                 continue  # Skip stocks we already have positions in
+            
+            if d.Volume[0] * d.Close[0] < 1000000:
+                continue
+
 
             symbol = d._name
             if self.rule_201_monitor.is_restricted(symbol):
@@ -1084,6 +1376,12 @@ class StockSniperStrategy(bt.Strategy):
 
 
 
+
+
+
+
+
+
     def execute_buy(self, data, size, current_date):
         symbol = data._name
         current_price = data.close[0]
@@ -1110,6 +1408,12 @@ class StockSniperStrategy(bt.Strategy):
         
         self.trailing_stops[data] = stop_price
     
+
+
+
+
+
+
     def update_group_data(self, data):
         try:
             symbol = data._name
@@ -1538,8 +1842,15 @@ def run_strategy_optimization(args, logger, param_ranges):
     # Setup Cerebro for optimization
     cerebro = bt.Cerebro(maxcpus=None, optreturn=True)
     cerebro.broker.set_cash(10000)  # Initial cash
-    comminfo = FixedCommissionScheme()
-    cerebro.broker.addcommissioninfo(comminfo)
+
+
+    adaptive_slippage = AdaptiveSlippageCommissionScheme()
+    cerebro.broker.addcommissioninfo(adaptive_slippage)
+
+
+
+    cerebro.broker.set_slippage_perc(0.0, slip_open=True, slip_match=True, slip_out=False)
+
     
     # Get data files (use a smaller sample for optimization to make it faster)
     data_dir = 'Data/RFpredictions'
@@ -2137,12 +2448,43 @@ def main():
         return None
 
 
+
+
+
+
+
+
+
+
+
+
 def setup_backtest_environment(args, logger):
     """Set up the backtest environment with Cerebro and data feeds."""
     cerebro = bt.Cerebro(maxcpus=None)
     cerebro.broker.set_cash(10000)  # Initial cash
-    comminfo = FixedCommissionScheme()
-    cerebro.broker.addcommissioninfo(comminfo)
+
+
+
+
+    ibkr_model = IBKRAdaptiveCommission(
+        commission_per_share=0.0035,
+        min_per_order=0.35,
+        max_per_order_pct=0.005,
+        exchange_fees=0.0002,
+        partial_fill_min=0.35,
+        atr_period=14,
+        slip_base=0.0001,
+        slip_size_factor=0.15,
+        slip_vol_factor=0.1,
+        slip_atr_factor=1.5,
+        min_dollar_volume=1000000,
+        min_avg_volume=10000
+    )
+    
+    # Add to broker
+    cerebro.broker.addcommissioninfo(ibkr_model)
+
+    #cerebro.broker.set_coo(True) real trading would have this closing near open if the price is changing a lot so maybe this can be enabled after the com testing
     cerebro.broker.set_coc(False)  # Close position at end of day
     
     # Get data files
@@ -2883,19 +3225,63 @@ def print_sqn_quality(results):
 
 
 def print_risk_metrics(results):
-    """Print risk metrics with colorized output."""
+    """Print risk metrics with dynamic, context-aware thresholds."""
     print("\nRisk Metrics:")
+    
+    # Get key metrics for dynamic calculations
+    sortino = results.get('sortino_ratio', 0)
+    calmar = results.get('calmar_ratio', 0)
+    annual_return = results.get('annualized_return', 0)
+    avg_loss_pct = results.get('avg_loss_pct', 0)
+
+    # ===== Dynamic Threshold Logic =====
+    # Annualized Volatility Thresholds
+    if sortino > 2 and calmar > 5:  # Exceptional risk-adjusted returns
+        vol_good = 30.0  # Green if <30%
+        vol_bad = 50.0   # Red if >50%
+    elif annual_return > 150:  # Ultra-high return strategy
+        vol_good = 40.0
+        vol_bad = 60.0
+    else:  # Standard thresholds
+        vol_good = 20.0
+        vol_bad = 40.0
+
+    # Daily Volatility (derived from annualized thresholds)
+    daily_vol_multiplier = 1/15.8  # ≈ sqrt(252 trading days)
+    daily_good = vol_good * daily_vol_multiplier
+    daily_bad = vol_bad * daily_vol_multiplier
+
+    # ===== Updated Print Statements =====
     print(colorize_output(results['max_dd'], "Max Drawdown %:", 10, 25, lower_is_better=True))
-    print(colorize_output(results['max_dd_duration'], "Max Drawdown Duration (days):", results['max_consecutive_wins'] * 10, results['max_consecutive_wins'] * 15, lower_is_better=True))
-    print(colorize_output(results['ulcer_index'], "Ulcer Index:", 1, 3, lower_is_better=True, unicorn_multiplier=10000.0))
+    print(colorize_output(results['max_dd_duration'], "Max Drawdown Duration (days):", 
+                         results['max_consecutive_wins'] * 10, 
+                         results['max_consecutive_wins'] * 15, 
+                         lower_is_better=True))
+    print(colorize_output(results['ulcer_index'], "Ulcer Index:", 1, 3, 
+                         lower_is_better=True, unicorn_multiplier=10000.0))
     print(colorize_output(results['recovery_factor'], "Recovery Factor:", 3.0, 1.0))
     print(colorize_output(results['common_sense_ratio'], "Common Sense Ratio:", 0.5, 0.2))
-    print(colorize_output(results['risk_of_ruin'], "Risk of Ruin:", 0.001, 0.05, lower_is_better=True, unicorn_multiplier=10000.0))
-    print(colorize_output(results['daily_volatility'], "Daily Volatility %:", results['avg_loss_pct'] * 0.8, results['avg_win_pct'], lower_is_better=True))
-    print(colorize_output(results['annualized_volatility'], "Annualized Volatility %:", results['avg_loss_pct'] * 0.8 * 15.8, results['avg_win_pct'] * 15.8, lower_is_better=True))
-    print(colorize_output(results['var_95'], "Daily VaR (95%):", results['avg_loss_pct'] * 1.2, results['avg_win_pct'] * 1.8, lower_is_better=True))
-    print(colorize_output(results['cvar_95'], "Daily CVaR (95%):", results['avg_loss_pct'] * 1.5, results['avg_win_pct'] * 2, lower_is_better=True))
-
+    print(colorize_output(results['risk_of_ruin'], "Risk of Ruin:", 0.001, 0.05, 
+                         lower_is_better=True, unicorn_multiplier=10000.0))
+    
+    # Updated Volatility Lines with Dynamic Thresholds
+    print(colorize_output(results['daily_volatility'], "Daily Volatility %:", 
+                         daily_good, daily_bad, lower_is_better=True))
+    
+    print(colorize_output(results['annualized_volatility'], "Annualized Volatility %:", 
+                         vol_good, vol_bad, lower_is_better=True))
+    
+    # VaR/CVaR thresholds scaled to strategy performance
+    var_cvar_multiplier = 2 if annual_return > 100 else 1  # Aggressive vs conservative
+    print(colorize_output(results['var_95'], "Daily VaR (95%):", 
+                         avg_loss_pct * 1.2 * var_cvar_multiplier, 
+                         avg_loss_pct * 2.5 * var_cvar_multiplier, 
+                         lower_is_better=True))
+    
+    print(colorize_output(results['cvar_95'], "Daily CVaR (95%):", 
+                         avg_loss_pct * 1.5 * var_cvar_multiplier, 
+                         avg_loss_pct * 3.0 * var_cvar_multiplier, 
+                         lower_is_better=True))
 
 def print_trade_statistics(results):
     """Print trade statistics with colorized output."""
@@ -2917,7 +3303,7 @@ def print_trade_statistics(results):
     print(colorize_output(results['largest_win_pct'], "Largest Win (%):", 5.0, 2.0))
     print(colorize_output(results['largest_loss_pct'], "Largest Loss (%):", results['largest_win_pct'] * 0.5, results['largest_win_pct'] * 2.0, lower_is_better=True))
     print(colorize_output(results['avg_profit_per_trade'], "Avg. Trade P&L:", 50, 0))
-    print(colorize_output(results['profit_factor'], "Profit Factor:", 3.0, 1.5))
+    print(colorize_output(results['profit_factor'], "Profit Factor:", 2.5, 1.0))
     print(colorize_output(results['net_profit_drawdown_ratio'], "Net Profit / Drawdown Ratio:", 3.0, 1.0))
 
 

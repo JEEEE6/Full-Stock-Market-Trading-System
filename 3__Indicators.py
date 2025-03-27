@@ -110,39 +110,23 @@ def find_levels(df, window_size):
 
 
 def detect_peaks_and_valleys(df, column_name, prominence=1, lookback_window=50):
-    """
-    Detects peaks and valleys in a time series without future data leakage.
-    Only uses data available up to each point in time (historical data).
-    
-    Parameters:
-    - df: DataFrame containing the time series data
-    - column_name: Name of the column to analyze for peaks/valleys
-    - prominence: Minimum prominence of peaks to detect
-    - lookback_window: Number of historical periods to consider for peak detection
-    """
+
     peaks_column = column_name + '_Peaks'
     valleys_column = column_name + '_Valleys'
     
-    # Initialize columns with NaN
     df[peaks_column] = np.nan
     df[valleys_column] = np.nan
     
-    # Iterate through the dataframe starting from the minimum required history
     for i in range(lookback_window, len(df)):
-        # Get historical window up to current point (no future data)
         historical_window = df[column_name].iloc[i-lookback_window:i+1].values
         
-        # Detect peaks using only historical data
         peaks, _ = find_peaks(historical_window, prominence=prominence)
         
-        # Check if the current point is a peak in its historical context
         if len(peaks) > 0 and peaks[-1] == lookback_window:  # Current point is at position 'lookback_window' in the window
             df.loc[df.index[i], peaks_column] = df[column_name].iloc[i]
         
-        # Detect valleys using only historical data
         valleys, _ = find_peaks(-historical_window, prominence=prominence)
         
-        # Check if the current point is a valley in its historical context
         if len(valleys) > 0 and valleys[-1] == lookback_window:  # Current point is at position 'lookback_window' in the window
             df.loc[df.index[i], valleys_column] = df[column_name].iloc[i]
     
@@ -352,18 +336,14 @@ def add_kalman_and_entropy_metrics(df, window_size=70, bins=30):
 
 def calculate_ema_volume_change(df, window=90, ema_span=20):
 
-    # Calculate rolling median and IQR
     rolling_median = df['Volume'].rolling(window=window).median()
     rolling_iqr = df['Volume'].rolling(window=window).apply(lambda x: x.quantile(0.75) - x.quantile(0.25))
     
-    # Scale the volume
     df['Volume_Scaled'] = (df['Volume'] - rolling_median) / rolling_iqr
     df['Volume_Scaled'] = df['Volume_Scaled'].fillna(0)  # Fill NaNs that may arise from rolling window
     
-    # Calculate EMA of the scaled volume
     df['Volume_EMA'] = df['Volume_Scaled'].ewm(span=ema_span, adjust=False).mean()
     
-    # Calculate the percentage change of the EMA of the scaled volume
     df['Volume_EMA_Change'] = df['Volume_EMA'].pct_change()
     
     return df['Volume_EMA_Change']
@@ -419,7 +399,6 @@ def calculate_apz(data, ema_period=20, atr_period=14, atr_multiplier=None, volat
 
     data['APZ_Upper%'] = ((data['APZ_Upper'] - close) / close) * 100
     data['APZ_Lower%'] = ((close - data['APZ_Lower']) / close) * 100
-    ##drop the upper and lower apz columns
     data = data.drop(columns=['APZ_Upper', 'APZ_Lower'])
     return data
 
@@ -473,24 +452,21 @@ def compute_VPT(df):
 def AtrVolume(df):
     df['ATR_std'] = df['ATR'].rolling(window=60).std()
     df['Volume_std'] = df['Volume'].rolling(window=60).std()
-    ATR_threshold_multiplier = 2  # Example value, can be adjusted
-    Volume_threshold_multiplier = 2  # Example value, can be adjusted
+    ATR_threshold_multiplier = 2  
+    Volume_threshold_multiplier = 2  
     df['ATR_trigger'] = df['ATR'] > (df['ATR_std'] * ATR_threshold_multiplier)
     df['Volume_trigger'] = df['Volume'] > (df['Volume_std'] * Volume_threshold_multiplier)
     df['Oscillator'] = (df['ATR_trigger'] & df['Volume_trigger']).astype(int)
     reset_points = df['Oscillator'].diff().eq(-1).cumsum()
-    # Calculate the trigger counter
     df['Trigger_Counter'] = df['Oscillator'].groupby(reset_points).cumsum()
     return df
 
 
 def ATR_Based_Adaptive_Trend_Channels(df):
-    # 200-day Moving Average
     df['200MA'] = df['Close'].rolling(window=200).mean()
     df['14Day_Avg_ATR'] = df['ATR'].rolling(window=14).mean()
     df['Upper_Band'] = df['200MA'] + df['14Day_Avg_ATR']
     df['Lower_Band'] = df['200MA'] - df['14Day_Avg_ATR']
-    # Percentage Deviation from Bands
     df['Pct_Deviation_Upper'] = np.where(df['Close'] > df['Upper_Band'],
                                          (df['Close'] - df['Upper_Band']) / df['Upper_Band'] * 100,
                                          -((df['Upper_Band'] - df['Close']) / df['Close']) * 100)
@@ -498,7 +474,6 @@ def ATR_Based_Adaptive_Trend_Channels(df):
     df['Pct_Deviation_Lower'] = np.where(df['Close'] < df['Lower_Band'],
                                          -((df['Close'] - df['Lower_Band']) / df['Lower_Band']) * 100,
                                          ((df['Lower_Band'] - df['Close']) / df['Close']) * 100)
-    ##drop the intermediate columns used to calculate the bands
     df = df.drop(columns=['200MA', '14Day_Avg_ATR', 'Upper_Band', 'Lower_Band'])
     return df
 
@@ -568,10 +543,8 @@ def add_rolling_lzc(df, window_size=50, bin_size=1):
     percentage_moves = calculate_percentage_moves(close_prices)
     binned_changes = bin_percentage_changes(percentage_moves, bin_size)
 
-    # Calculate Lempel-Ziv Complexity on the binned sequence for each rolling window
     lzc_values = calculate_lzc(binned_changes, window_size)
 
-    # Add the LZC values to the DataFrame
     df['Lempel_Ziv_Complexity'] = np.concatenate([[np.nan] * (window_size - 1), lzc_values[window_size - 1:]])  # Ensure same length as original data
 
     return df
@@ -654,7 +627,6 @@ def calculate_indicators_numba(volume, close, high, low):
     ado = np.zeros(n)
     ado_close_cor = np.zeros(n)
 
-    # Calculate volume lag
     for i in range(1, n):
         volume_lag_1[i] = volume[i - 1]
         if i > 1:
@@ -662,7 +634,6 @@ def calculate_indicators_numba(volume, close, high, low):
         if i > 2:
             volume_lag_3[i] = volume[i - 3]
 
-    # Calculate rolling mean, percentage change, and std
     for i in range(28, n):
         volume_rolling_28[i] = np.mean(volume[i-28:i])
         if volume_rolling_28[i] != 0:
@@ -674,14 +645,12 @@ def calculate_indicators_numba(volume, close, high, low):
         if volume_rolling_90[i] != 0:
             volume_percent_rolling_90[i] = ((volume[i] - volume_rolling_90[i]) / volume_rolling_90[i]) * 100
 
-    # Calculate volume slope
     for i in range(5, n):
         x = np.arange(5)
         y = volume[i-5:i]
         slope, _ = linear_regression(x, y)
         volume_slope[i] = slope
 
-    # Calculate ADO
     for i in range(n):
         if high[i] != low[i]:  # Avoid division by zero
             clv = ((close[i] - low[i]) - (high[i] - close[i])) / (high[i] - low[i])
@@ -689,7 +658,6 @@ def calculate_indicators_numba(volume, close, high, low):
 
     ado_cumsum = np.cumsum(ado)
 
-    # Calculate rolling correlation
     for i in range(28, n):
         if np.std(close[i-28:i]) > 0 and np.std(ado_cumsum[i-28:i]) > 0:  # Ensure valid standard deviations
             ado_close_cor[i] = np.corrcoef(close[i-28:i], ado_cumsum[i-28:i])[0, 1]
@@ -700,7 +668,6 @@ def calculate_indicators_numba(volume, close, high, low):
 
 
 def VolumeADO(df):
-    # Extract relevant columns as numpy arrays
     volume = df['Volume'].to_numpy()
     close = df['Close'].to_numpy()
     high = df['High'].to_numpy()
@@ -1258,24 +1225,20 @@ def DataQualityCheck(df, all_dfs=None):
     if df['Date'].dtype != 'datetime64[ns]':
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
-    # Add 'Adj Close' if it doesn't exist
     if 'Adj Close' not in df.columns:
         df['Adj Close'] = df['Close']
 
-    # **Ensure data goes back to at least 2022**
     earliest_date = df['Date'].min()
     if earliest_date > pd.Timestamp('2022-05-01'):
         logging.error(f"Data does not go back to 2022. Earliest date in dataset: {earliest_date}")
         return None
 
-    # Check if the data is recent (has data in the current year)
     current_year = datetime.now().year
     previous_year = current_year - 1
     if df['Date'].max().year < previous_year:
         logging.error(f"Data is not recent. Last date in dataset: {df['Date'].max()}")
         return None
 
-    # Continue with other checks...
     sample_size = max(int(len(df) * 0.02), 1)
     start_mean = df['Close'].head(sample_size).mean()
     end_mean = df['Close'].tail(sample_size).mean()
@@ -1420,9 +1383,6 @@ def process_data_files(run_percent):
     print(f'Average time per file: {round(total_time / len(files_to_process), 2)} seconds')
     print(f'Successfully processed: {completed}')
     print(f'Failed to process: {failed}')
-
-
-
 
 
 
